@@ -31,6 +31,8 @@ ALLOWED_HOSTS = []
 # Application definition
 
 INSTALLED_APPS = [
+    'channels',
+    'pointing_poker',
     'django.contrib.admin',
     'django.contrib.auth',
     'django.contrib.contenttypes',
@@ -69,7 +71,8 @@ TEMPLATES = [
 
 WSGI_APPLICATION = 'PointingPoker.wsgi.application'
 
-
+ASGI_APPLICATION = "PointingPoker.routing.application"
+# from PointingPoker.PointingPoker.routing import application
 # Database
 # https://docs.djangoproject.com/en/3.0/ref/settings/#databases
 
