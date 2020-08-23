@@ -25,7 +25,7 @@ class RoomConsumerService:
         return room.exists()
 
     @staticmethod
-    def login(room_name, password) -> bool:
+    def password_valid(room_name, password) -> bool:
         """
         :param room_name:
         :param password:

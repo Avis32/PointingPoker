@@ -5,68 +5,113 @@ from rest_framework.exceptions import ErrorDetail
 
 from PointingPoker.asgi import application
 from pointing_poker.models import Room
-from pointing_poker.views.consumers import SEND_EVALUATION
+from pointing_poker.views.consumers import SEND_EVALUATION, LOGIN
+
 
 
 @pytest.mark.django_db
 class TestConsumers:
     def setup_method(self):
-        self.communicator = WebsocketCommunicator(application, "/ws/room/test/")
-        async_to_sync(self.communicator.connect)
-        print(vars(self.communicator))
+        self.not_connected_communicator: WebsocketCommunicator = WebsocketCommunicator(application, "/ws/room/test/")
 
     @pytest.fixture
-    async def set_up_one_consumer(self):
-        self.communicator = WebsocketCommunicator(application, "/ws/room/test/")
-        await self.communicator.connect()
-        room = Room(room_name='test')
+    async def setup_one_not_connected_consumer(self):
+        room = Room(room_name='test', password='pass')
         await sync_to_async(room.save)()
-        return 1
+        communicator = WebsocketCommunicator(application, "/ws/room/test/")
+        yield communicator
+        await sync_to_async(room.delete)()
+        await communicator.disconnect()
 
     @pytest.fixture
-    async def set_up_two_consumer(self):
-        self.communicator = WebsocketCommunicator(application, "/ws/room/test/")
-        await self.communicator.connect()
-        print(vars(self.communicator))
-        self.communicator2 = WebsocketCommunicator(application, "/ws/room/test/")
-        await self.communicator2.connect()
-        print(vars(self.communicator2))
-        return 1
+    async def setup_one_consumer(self):
+        room = Room(room_name='test', password='pass')
+        await sync_to_async(room.save)()
+        communicator = WebsocketCommunicator(application, "/ws/room/test/")
+        await communicator.connect()
+        yield communicator
+        await sync_to_async(room.delete)()
+        await communicator.disconnect()
+
+    @pytest.fixture
+    async def setup_two_consumers(self):
+        room = Room(room_name='test', password='pass')
+        await sync_to_async(room.save)()
+        communicator1 = WebsocketCommunicator(application, "/ws/room/test/")
+        communicator2 = WebsocketCommunicator(application, "/ws/room/test/")
+        await communicator1.connect()
+        await communicator2.connect()
+        communicators = [communicator1, communicator2]
+        for idx, communicator in enumerate(communicators):
+            await communicator.send_json_to({
+                'input_type': LOGIN,
+                'content': {
+                    'password': 'pass',
+                    'username': 'user' + str(idx)
+                }
+            })
+        yield communicators
+        await sync_to_async(room.delete)()
+        await communicator1.disconnect()
+        await communicator2.disconnect()
 
     @pytest.mark.asyncio
-    async def test_if_socket_connect(self, set_up_one_consumer):
-        communicator = WebsocketCommunicator(application, "/ws/room/test/")
-        connected, _ = await communicator.connect()
+    async def test_if_socket_connect(self, setup_one_not_connected_consumer):
+        connected, _ = await setup_one_not_connected_consumer.connect()
         assert connected
 
     @pytest.mark.asyncio
-    async def test_if_socket_disconnect_when_room_does_not_exists(self, set_up_one_consumer):
+    async def test_if_socket_disconnect_when_room_does_not_exists(self):
         communicator = WebsocketCommunicator(application, "/ws/room/nonexisting/")
         connected, _ = await communicator.connect()
         assert not connected
+        await communicator.disconnect()
 
     @pytest.mark.asyncio
-    async def test_if_socket_return_nothing_if_not_logged(self, set_up_one_consumer):
-        await self.communicator.send_json_to({
+    async def test_if_socket_gives_error_when_wrong_password_on_login(self, setup_one_consumer):
+        communicator = setup_one_consumer
+        await communicator.connect()
+        await communicator.send_json_to({
+            'input_type': LOGIN,
+            'content': {
+                'password': 'wrong',
+                'username': 'Marek'
+            }
+        })
+        data = await communicator.receive_json_from()
+        assert data == {'error': 'WrongPassword'}
+
+    @pytest.mark.asyncio
+    async def test_if_socket_gives_error_when_wrong_password_on_login(self, setup_one_consumer):
+        communicator = setup_one_consumer
+        await communicator.connect()
+        await communicator.send_json_to({
+            'input_type': LOGIN,
+            'content': {
+                'password': 'wrong',
+                'username': 'Marek'
+            }
+        })
+        data = await communicator.receive_json_from()
+        assert data == {'error': 'WrongPassword'}
+
+
+    @pytest.mark.asyncio
+    async def test_if_socket_send_eval_to_other_consumer(self, setup_two_consumers):
+        communicator1, communicator2 = setup_two_consumers
+        await communicator1.send_json_to({
             'input_type': SEND_EVALUATION,
-            'content': 'content'
+            'content': {
+                'evaluation': 2,
+            }
         })
-        assert await self.communicator.receive_json_from() is None
+        data = await communicator2.receive_json_from()
+        print(data)
+        assert data == {'user': 'user0', 'evaluation': 2}
 
-    @pytest.mark.asyncio
-    async def test_if_sockeat_return_nothing_if_not_logged(self, set_up_one_consumer):
-        await self.communicator.send_json_to({
-            'input_type': 'wrong',
-            'content': {}
-        })
-        response = await self.communicator.receive_json_from()
-        print(response)
-        assert type(response['input_type']) == ErrorDetail
-        # assert await self.communicator.receive_json_from() is None
 
-    @pytest.mark.asyncio
-    async def test_if_logging_work(self, set_up_one_consumer):
-        pass
+
+
 
 
 
